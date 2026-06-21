@@ -2,6 +2,8 @@
 
 A compact, teleoperated ground robot built with ESP32 that streams live video over WiFi and is controlled via a PS4 gamepad. The project came out of a final year assignment at Universidad de Málaga (Industrial Electronics Engineering), with the goal of building something actually useful for rescue or reconnaissance — not just another LED-blink demo.
 
+<img width="526" height="262" alt="image" src="https://github.com/user-attachments/assets/a80578e5-50cd-4648-bab3-5e423deacafb" />
+
 ## What it does
 
 The robot moves using differential drive (two DC motors, one per side) and sends a live video feed from an ESP32-CAM mounted at the front. You control it from a PS4 controller over Bluetooth, and watch the stream from any browser on the same network. It fits in tight spaces — the whole thing is about 10 cm long and 80 mm in diameter — which was the original design constraint: something that could navigate rubble or collapsed structures where larger robots can't go.
