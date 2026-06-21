@@ -1,0 +1,166 @@
+#include <Ticker.h>
+#include <PS4Controller.h>
+
+// Pines motor 1
+const int ENCODER1_A = 26;
+const int ENCODER1_B = 25;
+const int MOTOR1_PIN_A = 23;
+const int MOTOR1_PIN_B = 32;
+
+// Pines motor 2
+const int ENCODER2_A = 25;
+const int ENCODER2_B = 26;
+const int MOTOR2_PIN_A = 32;
+const int MOTOR2_PIN_B = 33;
+
+// PWM
+const int freq = 1000;
+const int resolution = 8;
+
+// PID
+const float KP = 1.0;
+const float KI = 0.05;
+const float KD = 0.02;
+const float pidInterval = 0.01;
+
+struct MotorPID {
+  volatile long pos = 0;
+  volatile int lastA = 0;
+  volatile int lastB = 0;
+  long target = 0;
+  float lastError = 0;
+  float integral = 0;
+  int pwm = 0;
+};
+
+MotorPID m1, m2;
+Ticker pidTimer;
+
+const char* ssid = "PS4-BLUETOOTH";
+const char* password = "";
+
+// ENCODERS
+void IRAM_ATTR enc1A() {
+  int A = digitalRead(ENCODER1_A);
+  int B = digitalRead(ENCODER1_B);
+  if (A != m1.lastA) {
+    if (B != A) m1.pos++;
+    else m1.pos--;
+    m1.lastA = A;
+  }
+}
+
+void IRAM_ATTR enc1B() {
+  int A = digitalRead(ENCODER1_A);
+  int B = digitalRead(ENCODER1_B);
+  if (B != m1.lastB) {
+    if (A == B) m1.pos++;
+    else m1.pos--;
+    m1.lastB = B;
+  }
+}
+
+void IRAM_ATTR enc2A() {
+  int A = digitalRead(ENCODER2_A);
+  int B = digitalRead(ENCODER2_B);
+  if (A != m2.lastA) {
+    if (B != A) m2.pos++;
+    else m2.pos--;
+    m2.lastA = A;
+  }
+}
+
+void IRAM_ATTR enc2B() {
+  int A = digitalRead(ENCODER2_A);
+  int B = digitalRead(ENCODER2_B);
+  if (B != m2.lastB) {
+    if (A == B) m2.pos++;
+    else m2.pos--;
+    m2.lastB = B;
+  }
+}
+
+// PID
+void updateMotorPID(MotorPID& m, int pinA, int pinB) {
+  float error = m.target - m.pos;
+  m.integral += error * pidInterval;
+  m.integral = constrain(m.integral, -1000, 1000);
+  float deriv = (error - m.lastError) / pidInterval;
+  float out = KP * error + KI * m.integral + KD * deriv;
+  int pwm = constrain((int)fabs(out), 0, 255);
+  if (out > 0) {
+    ledcWrite(pinA, pwm);
+    ledcWrite(pinB, 0);
+  } else if (out < 0) {
+    ledcWrite(pinA, 0);
+    ledcWrite(pinB, pwm);
+  } else {
+    ledcWrite(pinA, 0);
+    ledcWrite(pinB, 0);
+  }
+  m.pwm = pwm;
+  m.lastError = error;
+}
+
+void calcPID() {
+  updateMotorPID(m1, MOTOR1_PIN_A, MOTOR1_PIN_B);
+  updateMotorPID(m2, MOTOR2_PIN_A, MOTOR2_PIN_B);
+}
+
+void ps4Event(PS4EventType type, PS4Message& msg) {
+  if (type == PS4_EVENT_BUTTON) {
+    if (msg.button == PS4_BUTTON_CROSS) {
+      m1.target = 0;
+      m2.target = 0;
+    }
+  } else if (type == PS4_EVENT_ANALOG_STICK) {
+    int16_t leftY = msg.analog.stick.lx;
+    int16_t leftX = msg.analog.stick.ly;
+    int16_t rightX = msg.analog.stick.rx;
+    long moveSpeed = map(leftY, -127, 127, -500, 500);
+    long turnSpeed = map(rightX, -127, 127, -300, 300);
+    m1.target = moveSpeed + turnSpeed;
+    m2.target = moveSpeed - turnSpeed;
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  ledcAttach(MOTOR1_PIN_A, freq, resolution);
+  ledcAttach(MOTOR1_PIN_B, freq, resolution);
+  ledcAttach(MOTOR2_PIN_A, freq, resolution);
+  ledcAttach(MOTOR2_PIN_B, freq, resolution);
+
+  pinMode(ENCODER1_A, INPUT);
+  pinMode(ENCODER1_B, INPUT);
+  pinMode(ENCODER2_A, INPUT);
+  pinMode(ENCODER2_B, INPUT);
+
+  m1.lastA = digitalRead(ENCODER1_A);
+  m1.lastB = digitalRead(ENCODER1_B);
+  m2.lastA = digitalRead(ENCODER2_A);
+  m2.lastB = digitalRead(ENCODER2_B);
+
+  attachInterrupt(digitalPinToInterrupt(ENCODER1_A), enc1A, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER1_B), enc1B, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER2_A), enc2A, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER2_B), enc2B, CHANGE);
+
+  pidTimer.attach(pidInterval, calcPID);
+
+  PS4.attach(ps4Event);
+  PS4.begin("AC:FD:93:FC:71:22");
+  Serial.println("Esperando conexion PS4...");
+}
+
+void loop() {
+  if (Serial.available()) {
+    long ref = Serial.parseInt();
+    if (ref != 0) {
+      m1.target = ref;
+      m2.target = ref;
+      Serial.printf("Nueva referencia: %ld\n", ref);
+    }
+  }
+}
